@@ -55,9 +55,16 @@
     <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Supabase JS Library -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
     <script type="text/babel">
         const { useState, useEffect } = React;
+
+        // Initialize Supabase Client
+        const SUPABASE_URL = "https://vmjposgabkrrlszpppba.supabase.co";
+        const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZtanBvc2dhYmtycmxzenBwcGJhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4Mzc5MDgsImV4cCI6MjA5NjQxMzkwOH0.RrQIAAWX3MI_JdDv-Bkk6I5ARmR7uw5tt9wrvq6pO74";
+        const _supabase = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         const DEFAULT_COMPANY_DETAILS = {
             name: "Eatsee",
@@ -182,6 +189,39 @@
             const [adminProducts, setAdminProducts] = useState([...products]);
             const [editingProduct, setEditingProduct] = useState(null);
 
+            // Fetch initial data from Supabase
+            useEffect(() => {
+                const fetchCloudData = async () => {
+                    try {
+                        // Fetch Company Config
+                        const { data: cData, error: cErr } = await _supabase
+                            .from('company_config')
+                            .select('*')
+                            .eq('id', 1)
+                            .single();
+                        
+                        if (cData && !cErr) {
+                            setCompany(cData);
+                            setAdminCompany(cData);
+                        }
+
+                        // Fetch Products
+                        const { data: pData, error: pErr } = await _supabase
+                            .from('products')
+                            .select('*')
+                            .order('created_at', { ascending: false });
+                        
+                        if (pData && !pErr) {
+                            setProducts(pData);
+                            setAdminProducts(pData);
+                        }
+                    } catch (err) {
+                        console.error("Supabase sync failed:", err);
+                    }
+                };
+                fetchCloudData();
+            }, []);
+
             useEffect(() => {
                 localStorage.setItem("eatsee_company", JSON.stringify(company));
             }, [company]);
@@ -302,10 +342,19 @@ _Sent via ${company.name} Interactive Web Portal. Please confirm my order!_`;
                 triggerToast("Logged out of Admin Portal.");
             };
 
-            const handleSaveCompanyConfig = (e) => {
+            const handleSaveCompanyConfig = async (e) => {
                 e.preventDefault();
                 setCompany({ ...adminCompany });
-                triggerToast("Store configurations updated successfully!");
+                
+                const { error } = await _supabase
+                    .from('company_config')
+                    .upsert({ id: 1, ...adminCompany });
+                
+                if (error) {
+                    triggerToast("Cloud sync failed: " + error.message, "error");
+                } else {
+                    triggerToast("Store configurations updated successfully!");
+                }
             };
 
             const handleLogoUpload = (e) => {
@@ -334,9 +383,18 @@ _Sent via ${company.name} Interactive Web Portal. Please confirm my order!_`;
                 setAdminProducts(updated);
             };
 
-            const handleSaveProducts = () => {
+            const handleSaveProducts = async () => {
                 setProducts([...adminProducts]);
-                triggerToast("Menu items saved successfully!");
+                
+                const { error } = await _supabase
+                    .from('products')
+                    .upsert(adminProducts);
+                
+                if (error) {
+                    triggerToast("Error syncing products: " + error.message, "error");
+                } else {
+                    triggerToast("Menu items saved successfully!");
+                }
             };
 
             const handleAddNewProduct = () => {
@@ -358,13 +416,23 @@ _Sent via ${company.name} Interactive Web Portal. Please confirm my order!_`;
                 triggerToast("New item draft created!");
             };
 
-            const handleDeleteProduct = (id) => {
+            const handleDeleteProduct = async (id) => {
                 const filteredAdmin = adminProducts.filter(p => p.id !== id);
                 const filteredProds = products.filter(p => p.id !== id);
                 setAdminProducts(filteredAdmin);
                 setProducts(filteredProds);
                 if (editingProduct?.id === id) setEditingProduct(null);
-                triggerToast("Item removed from Menu.");
+
+                const { error } = await _supabase
+                    .from('products')
+                    .delete()
+                    .eq('id', id);
+
+                if (error) {
+                    triggerToast("Error deleting from cloud: " + error.message, "error");
+                } else {
+                    triggerToast("Item removed from Menu.");
+                }
             };
 
             const confirmResetToDefaults = () => {
